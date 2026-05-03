@@ -38,6 +38,7 @@ Do not use this skill for small fixes or single-purpose changes that fit comfort
 | SDD handoff | If SDD forecasts a >400-line workload, honor `delivery_strategy`: ask, auto-chain, or require/record `size:exception` |
 | Visual map | Every chained PR MUST include a dependency diagram that marks the current PR |
 | Tracker PR | Every chain SHOULD have a draft tracker PR that lists every child PR and current status |
+| Tracker targeting | If a tracker PR exists, **no child PR may target `main`** — all must flow through the tracker branch |
 
 The goal is not bureaucracy. The goal is preventing reviewer burnout so maintainers can review with care instead of skimming exhausted. Big PRs create fatigue, hide defects, and slow merge velocity.
 
@@ -55,12 +56,30 @@ If a slice cannot meet these rules, split it differently. A chain is not a dumpi
 
 ## Choosing the Split Strategy
 
-| Scenario | Recommended approach | Why |
-|----------|----------------------|-----|
-| Feature needs isolated integration before main | Feature branch chain | Keeps incomplete work away from `main` |
-| Each slice can land independently | Stacked PRs to `main` | Reduces long-lived branch drift |
-| API and UI are tightly coupled | Feature branch chain | Allows integration before final merge |
-| Backend can ship before UI | Stacked PRs | Faster incremental value |
+Follow this decision tree — first match wins:
+
+```
+1. Is there (or will there be) a tracker PR?
+   YES → Feature Branch Chain (mandatory)
+   NO  ↓
+
+2. Can every slice land in main independently and stay green?
+   YES → Stacked PRs to main
+   NO  → Feature Branch Chain
+
+3. Is the diff pure generated/vendor/migration code?
+   YES → Consider size:exception instead of splitting
+```
+
+**Hard rule:** If a tracker PR exists, every child PR MUST target the tracker branch (or another child branch that eventually flows into it). No child PR may target `main` directly — otherwise the chain bypasses the tracker and lands in `main` before the chain is complete.
+
+| Scenario | Required approach | Why |
+|----------|-------------------|-----|
+| Tracker PR exists | **Feature Branch Chain** | All work must flow through the tracker before `main` |
+| Slices need integration before main | Feature Branch Chain | Keeps incomplete work away from `main` |
+| API and UI are tightly coupled | Feature Branch Chain | Allows integration before final merge |
+| Each slice can land independently, no tracker | Stacked PRs to `main` | Reduces long-lived branch drift |
+| Backend can ship before UI, no tracker | Stacked PRs | Faster incremental value |
 | Pure generated/vendor/migration diff | `size:exception` | Splitting may add noise without reducing review complexity |
 
 ## Chain Boundaries
@@ -123,11 +142,11 @@ When SDD planning produces tasks that may exceed 400 changed lines:
 
 ## Feature Branch Chain
 
-Use this when multiple PRs should integrate together before landing in `main`.
+Use this when multiple PRs should integrate together before landing in `main`. **Required when a tracker PR exists.**
 
 ```text
 main
- └── feat/my-feature              # integration branch
+ └── feat/my-feature              # tracker PR targets main
       ├── feat/my-feature-01-core # PR targets feat/my-feature
       ├── feat/my-feature-02-cli  # PR targets feat/my-feature
       └── feat/my-feature-03-docs # PR targets feat/my-feature
@@ -135,11 +154,28 @@ main
 
 ### Steps
 
-1. Create the feature branch from `main`.
-2. Open a main/tracker PR from the feature branch to `main` early and mark it as draft/no-merge.
-3. Create each implementation branch from the feature branch.
-4. Target each chained PR back to the feature branch.
-5. Merge the final feature branch to `main` only after all chained PRs are merged and tested together.
+1. Create the feature/tracker branch from `main`.
+2. Open the tracker PR from the feature branch to `main` — mark it draft with `no-merge`.
+3. Create each child branch from the feature branch.
+4. **Every child PR MUST target the feature/tracker branch** — never `main`.
+5. Merge child PRs into the feature branch as they pass review.
+6. Only merge the tracker PR into `main` after all children are merged and integrated.
+
+### Anti-pattern: child PR targeting main
+
+```text
+# WRONG — child bypasses tracker and lands in main directly
+main ← #101 (base: main) ← #102 ← #103
+              ↑ this skips the tracker
+
+# CORRECT — all children flow through the tracker branch
+main ← tracker (#105)
+         ├── #101 (base: tracker branch)
+         ├── #102 (base: tracker branch)
+         └── #103 (base: tracker branch)
+```
+
+If any child PR has `base: main` while a tracker PR exists, the chain is broken. The child will merge into `main` before the tracker, defeating the purpose of the chain.
 
 ### Tracker PR Expectations
 
