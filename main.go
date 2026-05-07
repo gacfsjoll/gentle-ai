@@ -44,7 +44,8 @@ func main() {
 
 	// Wait for interrupt signal or server error
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	// Also handle SIGHUP so the process can be cleanly stopped by some process managers
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
 	select {
 	case sig := <-quit:
